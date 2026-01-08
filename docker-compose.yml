@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    container_name: water-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app:ro
+      - ./data:/data
+    restart: unless-stopped
