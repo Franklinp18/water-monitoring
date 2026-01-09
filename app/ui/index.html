@@ -2,13 +2,141 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HydroMonitor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HydroMonitor - Plataforma</title>
   <link rel="stylesheet" href="/assets/styles.css" />
 </head>
+
 <body>
-  <h1>HydroMonitor: UI OK</h1>
-  <p>Si ves esto, FastAPI está sirviendo la UI.</p>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">💧</div>
+      <div class="brand-text">
+        <div class="brand-title">HydroMonitor <span class="accent">Local</span></div>
+        <div class="brand-sub">Plataforma de métricas • estilo ThingSpeak</div>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="btn primary" id="btn-add" type="button">+ Agregar métrica</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-head-text">
+          <div class="sidebar-title">Métricas</div>
+          <div class="sidebar-sub">Crea y administra widgets</div>
+        </div>
+
+        <!-- Toggle collapse -->
+        <button class="icon-btn" id="sidebar-toggle" type="button" title="Colapsar/Expandir">
+          <span class="chev" aria-hidden="truexx">❮</span>
+        </button>
+      </div>
+
+      <div class="sidebar-list" id="metrics-list"></div>
+
+      <div class="sidebar-footer">
+        <div class="hint">
+          ✅ MVP (Paso 3): configuración local<br/>
+          ➜ Luego conectamos API + SQLite + MQTT
+        </div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <section class="content">
+      <div class="content-head">
+        <div>
+          <h2>Dashboard</h2>
+          <p id="subtitle">Sin métricas aún. Crea la primera con “Agregar métrica”.</p>
+        </div>
+      </div>
+
+      <div class="grid" id="grid"></div>
+
+      <div class="empty" id="empty">
+        <div class="empty-card">
+          <div class="empty-title">Tu dashboard está vacío</div>
+          <div class="empty-sub">Agrega un KPI, una serie (línea), barras o una tabla.</div>
+          <button class="btn primary" id="btn-add-empty" type="button">+ Agregar métrica</button>
+        </div>
+      </div>
+
+      <footer class="footer">
+        COPYRIGHT 2026 © El contenido de esta obra es de propiedad intelectual de la ESPOL. Todos los derechos reservados.
+      </footer>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal">
+      <div class="modal-top">
+        <div>
+          <div class="modal-title">Agregar métrica</div>
+          <div class="modal-sub">Define qué quieres medir y cómo se visualiza.</div>
+        </div>
+        <button class="icon-btn" id="btn-close" title="Cerrar" type="button">✕</button>
+      </div>
+
+      <form id="metric-form" class="form">
+        <div class="row">
+          <label>
+            <span>Nombre</span>
+            <input name="name" placeholder="Ej: Nivel Tanque A" required />
+          </label>
+
+          <label>
+            <span>Key (identificador)</span>
+            <input name="key" placeholder="Ej: tank_level_a" required />
+          </label>
+        </div>
+
+        <div class="row">
+          <label>
+            <span>Tipo de widget</span>
+            <select name="type" required>
+              <option value="kpi">KPI (número grande)</option>
+              <option value="line">Serie (línea)</option>
+              <option value="bar">Barras</option>
+              <option value="table">Tabla (últimas lecturas)</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Unidad</span>
+            <input name="unit" placeholder="Ej: %, PSI, °C, pH" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label>
+            <span>Descripción (opcional)</span>
+            <input name="desc" placeholder="Ej: Sensor ultrasónico del tanque principal" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="checkbox">
+            <input type="checkbox" name="demo" checked />
+            <span>Usar data demo (hasta que conectemos API)</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="btn ghost" type="button" id="btn-cancel">Cancelar</button>
+          <button class="btn primary" type="submit">Crear métrica</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Chart.js local -->
+  <script src="/assets/vendor/chart.umd.min.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>
