@@ -33,7 +33,7 @@
 
         <!-- Toggle collapse -->
         <button class="icon-btn" id="sidebar-toggle" type="button" title="Colapsar/Expandir">
-          <span class="chev" aria-hidden="truexx">❮</span>
+          <span class="chev" aria-hidden="true">❮</span>
         </button>
       </div>
 
@@ -41,8 +41,8 @@
 
       <div class="sidebar-footer">
         <div class="hint">
-          ✅ MVP (Paso 3): configuración local<br/>
-          ➜ Luego conectamos API + SQLite + MQTT
+          ✅ MQTT + SQLite + Tiempo real<br/>
+          ➜ Histórico 30 días + Export (PDF/Excel) después
         </div>
       </div>
     </aside>
@@ -78,7 +78,7 @@
       <div class="modal-top">
         <div>
           <div class="modal-title">Agregar métrica</div>
-          <div class="modal-sub">Define qué quieres medir y cómo se visualiza.</div>
+          <div class="modal-sub">Define qué topic MQTT escuchar y cómo se visualiza.</div>
         </div>
         <button class="icon-btn" id="btn-close" title="Cerrar" type="button">✕</button>
       </div>
@@ -87,12 +87,12 @@
         <div class="row">
           <label>
             <span>Nombre</span>
-            <input name="name" placeholder="Ej: Nivel Tanque A" required />
+            <input name="name" placeholder="Ej: Humedad de Suelo" required />
           </label>
 
           <label>
             <span>Key (identificador)</span>
-            <input name="key" placeholder="Ej: tank_level_a" required />
+            <input name="key" placeholder="Ej: humedad_suelo" required />
           </label>
         </div>
 
@@ -114,16 +114,25 @@
         </div>
 
         <div class="row">
+          <label style="width:100%;">
+            <span>Topic MQTT (filtro)</span>
+            <input name="topic"
+              placeholder="Ej: hydromonit/+/humedad_suelo  (usa + y #)"
+              required />
+          </label>
+        </div>
+
+        <div class="row">
           <label>
             <span>Descripción (opcional)</span>
-            <input name="desc" placeholder="Ej: Sensor ultrasónico del tanque principal" />
+            <input name="desc" placeholder="Ej: Sensor FC-28 / ESP32" />
           </label>
         </div>
 
         <div class="row">
           <label class="checkbox">
-            <input type="checkbox" name="demo" checked />
-            <span>Usar data demo (hasta que conectemos API)</span>
+            <input type="checkbox" name="demo" />
+            <span>Modo demo (ignora MQTT y simula datos)</span>
           </label>
         </div>
 

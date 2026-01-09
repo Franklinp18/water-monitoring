@@ -1,2 +1,4 @@
 fastapi
 uvicorn[standard]
+asyncio-mqtt==0.16.2
+paho-mqtt==1.6.1
