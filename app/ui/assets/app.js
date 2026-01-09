@@ -1,7 +1,16 @@
 /* global Chart */
 (() => {
-  const SIDEBAR_KEY = "hydromonitor.sidebarCollapsed.v1";
+  "use strict";
 
+  // ----------------------------
+  // Config
+  // ----------------------------
+  const SIDEBAR_KEY = "hydromonitor.sidebarCollapsed.v1";
+  const DEMO_TICK_MS = 5000;
+
+  // ----------------------------
+  // DOM
+  // ----------------------------
   const $grid = document.getElementById("grid");
   const $list = document.getElementById("metrics-list");
   const $empty = document.getElementById("empty");
@@ -16,6 +25,9 @@
 
   const $sidebarToggle = document.getElementById("sidebar-toggle");
 
+  // ----------------------------
+  // Runtime state
+  // ----------------------------
   const charts = new Map(); // key -> Chart instance
 
   const state = {
@@ -23,43 +35,49 @@
     wsOnline: false,
     metrics: [],
     byKey: new Map(),
-    series: new Map(), // key -> {labels,data}
-    bars: new Map(),   // key -> {labels,data}
-    tables: new Map(), // key -> rows
-    kpis: new Map()    // key -> last
+
+    // runtime data for widgets
+    series: new Map(), // key -> {labels, data}
+    bars: new Map(),   // key -> {labels, data}
+    tables: new Map(), // key -> rows[]
+    kpis: new Map()    // key -> last {value, unit, ts}
   };
 
-  // ---------- API ----------
+  // ----------------------------
+  // API helpers
+  // ----------------------------
   async function fetchJson(url, opts = {}) {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
       ...opts
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} ${res.statusText} ${txt}`);
-    }
+
     const ct = res.headers.get("content-type") || "";
-    if (ct.includes("application/json")) return res.json();
+    const isJson = ct.includes("application/json");
+
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = isJson ? JSON.stringify(await res.json()) : await res.text();
+      } catch {
+        detail = "";
+      }
+      throw new Error(`HTTP ${res.status} ${res.statusText}${detail ? ` -> ${detail}` : ""}`);
+    }
+
+    if (isJson) return res.json();
     return null;
   }
 
-  async function apiGetMetrics() {
-    return fetchJson("/api/metrics");
-  }
-  async function apiCreateMetric(metric) {
-    return fetchJson("/api/metrics", { method: "POST", body: JSON.stringify(metric) });
-  }
-  async function apiDeleteMetric(key) {
-    return fetchJson(`/api/metrics/${encodeURIComponent(key)}`, { method: "DELETE" });
-  }
+  const apiGetMetrics = () => fetchJson("/api/metrics");
+  const apiCreateMetric = (metric) => fetchJson("/api/metrics", { method: "POST", body: JSON.stringify(metric) });
+  const apiDeleteMetric = (key) => fetchJson(`/api/metrics/${encodeURIComponent(key)}`, { method: "DELETE" });
 
   async function syncMetricsFromServer() {
     try {
       const metrics = await apiGetMetrics();
       state.apiOnline = true;
 
-      // Backend devuelve: key,name,unit,kind,topic,desc,demo
       const arr = Array.isArray(metrics) ? metrics : [];
       state.metrics = arr.map(m => ({
         key: m.key,
@@ -81,7 +99,9 @@
     }
   }
 
-  // ---------- Utils ----------
+  // ----------------------------
+  // Utils
+  // ----------------------------
   function slugify(s) {
     return (s || "")
       .trim()
@@ -100,8 +120,6 @@
   }
 
   function mqttMatch(filter, topic) {
-    // MQTT wildcards:
-    // + matches one level, # matches all remaining levels
     if (!filter) return false;
     const f = String(filter).split("/");
     const t = String(topic).split("/");
@@ -130,7 +148,9 @@
       : `Métricas configuradas. Esperando lecturas MQTT… • ${ws}`;
   }
 
-  // ---------- Sidebar collapse ----------
+  // ----------------------------
+  // Sidebar collapse
+  // ----------------------------
   function applySidebarState() {
     const collapsed = localStorage.getItem(SIDEBAR_KEY) === "1";
     document.body.classList.toggle("sidebar-collapsed", collapsed);
@@ -141,7 +161,9 @@
     localStorage.setItem(SIDEBAR_KEY, isCollapsed ? "1" : "0");
   }
 
-  // ---------- Demo data ----------
+  // ----------------------------
+  // Demo data
+  // ----------------------------
   function nowLabel() {
     const d = new Date();
     const hh = String(d.getHours()).padStart(2, "0");
@@ -173,42 +195,64 @@
     };
   }
 
-  // ---------- CRUD ----------
+  // ----------------------------
+  // CRUD
+  // ----------------------------
   async function addMetric(metric) {
-    if (state.byKey.has(metric.key)) {
-      alert("Ese key ya existe. Usa otro.");
-      return;
+    if (!metric.key) {
+      alert("Key inválido. Escribe un identificador (ej: caudal1_m, presion_psi).");
+      return false;
     }
 
-    await apiCreateMetric({
-      key: metric.key,
-      name: metric.name,
-      unit: metric.unit || null,
-      kind: metric.type || "line",
-      topic: metric.topic,
-      desc: metric.desc || "",
-      demo: !!metric.demo
-    });
+    // Nota: esto depende de que state.byKey esté sincronizado
+    if (state.byKey.has(metric.key)) {
+      alert(`Ese key ya existe: "${metric.key}". Usa otro (ej: caudal2_m).`);
+      return false;
+    }
 
-    await syncMetricsFromServer();
-    render();
+    try {
+      await apiCreateMetric({
+        key: metric.key,
+        name: metric.name,
+        unit: metric.unit || null,
+        kind: metric.type || "line",
+        topic: metric.topic,
+        desc: metric.desc || "",
+        demo: !!metric.demo
+      });
+
+      await syncMetricsFromServer();
+      render();
+      return true;
+    } catch (err) {
+      console.error("[UI] create metric failed:", err);
+      alert(`No se pudo crear la métrica.\n${err?.message || err}`);
+      return false;
+    }
   }
 
   async function removeMetric(key) {
-    await apiDeleteMetric(key);
+    try {
+      await apiDeleteMetric(key);
 
-    charts.get(key)?.destroy?.();
-    charts.delete(key);
-    state.series.delete(key);
-    state.bars.delete(key);
-    state.tables.delete(key);
-    state.kpis.delete(key);
+      charts.get(key)?.destroy?.();
+      charts.delete(key);
+      state.series.delete(key);
+      state.bars.delete(key);
+      state.tables.delete(key);
+      state.kpis.delete(key);
 
-    await syncMetricsFromServer();
-    render();
+      await syncMetricsFromServer();
+      render();
+    } catch (err) {
+      console.error("[UI] delete metric failed:", err);
+      alert(`No se pudo eliminar la métrica.\n${err?.message || err}`);
+    }
   }
 
-  // ---------- Render ----------
+  // ----------------------------
+  // Render
+  // ----------------------------
   function clearCharts() {
     for (const c of charts.values()) c.destroy();
     charts.clear();
@@ -218,6 +262,7 @@
     const metrics = state.metrics || [];
     setEmptyState(metrics.length === 0);
 
+    // Sidebar list
     $list.innerHTML = "";
     for (const m of metrics) {
       const item = document.createElement("div");
@@ -234,6 +279,7 @@
         <div style="display:flex; gap:8px; align-items:center;">
           ${demoTag}
           ${unitTag}
+          <a class="btn small" href="/metric/${encodeURIComponent(m.key)}" title="Ver historial">Historial</a>
           <button class="trash-btn" title="Eliminar métrica" data-del="${escapeHtml(m.key)}" type="button">🗑</button>
         </div>
       `;
@@ -241,10 +287,12 @@
       $list.appendChild(item);
     }
 
+    // Dashboard grid
     clearCharts();
     $grid.innerHTML = "";
     for (const m of metrics) $grid.appendChild(buildWidget(m));
 
+    // Mount widgets
     for (const m of metrics) {
       if (m.type === "line") mountLineChart(m);
       if (m.type === "bar") mountBarChart(m);
@@ -271,7 +319,8 @@
           <div class="widget-title">${escapeHtml(metric.name)}</div>
           ${sub}
         </div>
-        <div class="widget-actions">
+        <div class="widget-actions" style="display:flex; gap:8px; align-items:center;">
+          <a class="btn small" href="/metric/${encodeURIComponent(metric.key)}" title="Ver historial">Ver historial</a>
           <button class="trash-btn" title="Eliminar" data-del="${escapeHtml(metric.key)}" type="button">🗑</button>
         </div>
       </div>
@@ -387,13 +436,13 @@
     }
   }
 
-  // ---------- WS apply ----------
+  // ----------------------------
+  // WS apply
+  // ----------------------------
   function applyReading(msg) {
-    // msg trae topic, value, ts, unit, etc.
     const topic = msg.topic || "";
     const valueNum = typeof msg.value === "number" ? msg.value : Number(msg.value);
 
-    // Actualiza TODAS las métricas que hacen match por topic
     for (const m of state.metrics) {
       if (m.demo) continue;
       if (!mqttMatch(m.topic, topic)) continue;
@@ -480,7 +529,9 @@
     };
   }
 
-  // ---------- Demo tick ----------
+  // ----------------------------
+  // Demo tick
+  // ----------------------------
   function tickDemo() {
     for (const m of state.metrics) {
       if (!m.demo) continue;
@@ -520,48 +571,75 @@
     }
   }
 
-  // ---------- Modal / Events ----------
+  // ----------------------------
+  // Modal / Events
+  // ----------------------------
   function openModal() {
     $modal.classList.remove("hidden");
   }
+
   function closeModal() {
     $modal.classList.add("hidden");
     $form.reset();
   }
 
-  $btnAdd.addEventListener("click", openModal);
-  $btnAddEmpty.addEventListener("click", openModal);
-  $btnClose.addEventListener("click", closeModal);
-  $btnCancel.addEventListener("click", closeModal);
-  $modal.addEventListener("click", (e) => {
+  function setSubmitBusy(isBusy) {
+    const btn = $form?.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = !!isBusy;
+  }
+
+  $btnAdd?.addEventListener("click", openModal);
+  $btnAddEmpty?.addEventListener("click", openModal);
+  $btnClose?.addEventListener("click", closeModal);
+  $btnCancel?.addEventListener("click", closeModal);
+  $modal?.addEventListener("click", (e) => {
     if (e.target === $modal) closeModal();
   });
 
-  $form.addEventListener("submit", async (e) => {
+  $form?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    setSubmitBusy(true);
 
-    const name = $form.elements.name.value.trim();
-    const keyRaw = $form.elements.key.value.trim();
-    const key = slugify(keyRaw || name);
+    try {
+      const name = $form.elements.name?.value?.trim() || "";
+      const keyRaw = $form.elements.key?.value?.trim() || "";
+      const key = slugify(keyRaw || name);
 
-    const type = $form.elements.type.value;
-    const unit = $form.elements.unit.value.trim();
-    const topic = ($form.elements.topic.value || "").trim();
-    const desc = ($form.elements.desc.value || "").trim();
-    const demo = !!($form.elements.demo && $form.elements.demo.checked);
+      const type = $form.elements.type?.value || "line";
+      const unit = ($form.elements.unit?.value || "").trim();
 
-    if (!topic) {
-      alert("Topic MQTT es obligatorio. Ej: hydromonit/+/humedad_suelo");
-      return;
+      // IMPORTANTE: en tu HTML debe existir <input name="topic" ...>
+      const topicEl = $form.elements.topic;
+      const topic = (topicEl ? topicEl.value : "").trim();
+
+      const desc = ($form.elements.desc?.value || "").trim();
+      const demo = !!($form.elements.demo && $form.elements.demo.checked);
+
+      if (!name) {
+        alert("Nombre es obligatorio.");
+        return;
+      }
+      if (!key) {
+        alert("Key inválido.");
+        return;
+      }
+      if (!topic) {
+        alert("Topic MQTT es obligatorio. Ej: hydromonit/+/humedad_suelo");
+        return;
+      }
+
+      const ok = await addMetric({ name, key, type, unit, topic, desc, demo });
+      if (ok) closeModal();
+    } finally {
+      setSubmitBusy(false);
     }
-
-    await addMetric({ name, key, type, unit, topic, desc, demo });
-    closeModal();
   });
 
-  $sidebarToggle.addEventListener("click", toggleSidebar);
+  $sidebarToggle?.addEventListener("click", toggleSidebar);
 
-  // ---------- Boot ----------
+  // ----------------------------
+  // Boot
+  // ----------------------------
   async function boot() {
     applySidebarState();
     await syncMetricsFromServer();
@@ -569,15 +647,16 @@
     connectWS();
 
     tickDemo();
-    setInterval(tickDemo, 5000);
+    setInterval(tickDemo, DEMO_TICK_MS);
   }
 
-  // table minimal style
+  // Table minimal style
   const style = document.createElement("style");
   style.textContent = `
     table.tbl{ width:100%; border-collapse: collapse; font-size: 13px; }
     .tbl th,.tbl td{ padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.06); color: rgba(226,232,240,.86); }
     .tbl th{ text-align:left; font-size:12px; color: rgba(148,163,184,.70); background: rgba(2,6,23,.22); }
+    .btn.small{ padding:6px 10px; font-size:12px; }
   `;
   document.head.appendChild(style);
 

@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from .realtime import RealtimeHub
 from . import db
@@ -55,7 +56,9 @@ async def ws(ws: WebSocket):
         hub.disconnect(ws)
 
 
-# API mínima
+# -----------------------------
+# API mínima (ya existente)
+# -----------------------------
 @app.get("/api/metrics")
 def api_metrics():
     return db.list_metrics()
@@ -74,3 +77,58 @@ def api_debug_last(limit: int = 20):
 @app.get("/api/metrics/{metric_key}/readings")
 def api_metric_readings(metric_key: str, days: int = 1, limit: int = 500):
     return db.readings(metric_key, days=days, limit=limit)
+
+
+# -----------------------------
+# ✅ Agregado: CRUD de métricas
+# -----------------------------
+class MetricIn(BaseModel):
+    key: str
+    name: str | None = None
+    unit: str | None = None
+    kind: str | None = "line"    # kpi | line | bar | table
+    topic: str | None = None
+    desc: str | None = ""
+    demo: bool | None = False
+
+
+@app.post("/api/metrics")
+def api_create_metric(m: MetricIn):
+    key = (m.key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key es obligatorio")
+
+    topic = (m.topic or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic MQTT es obligatorio")
+
+    kind = (m.kind or "line").strip()
+    if kind not in {"kpi", "line", "bar", "table"}:
+        kind = "line"
+
+    # Requiere que db.py tenga upsert_metric(...)
+    db.upsert_metric(
+        key=key,
+        name=m.name,
+        unit=m.unit,
+        kind=kind,
+        topic=topic,
+        desc=m.desc,
+        demo=bool(m.demo),
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/metrics/{key}")
+def api_delete_metric(key: str):
+    key = (key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key inválido")
+
+    # Requiere que db.py tenga delete_metric(...)
+    db.delete_metric(key)
+    return {"ok": True}
+
+@app.get("/metric/{metric_key}")
+def metric_page(metric_key: str):
+    return FileResponse("app/ui/metric.html")

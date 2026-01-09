@@ -4,17 +4,21 @@ from datetime import datetime, timezone
 
 DB_PATH = os.getenv("DB_PATH", "/data/hydromonitor.db")
 
+
 def _conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.execute("PRAGMA journal_mode=WAL;")
     con.execute("PRAGMA synchronous=NORMAL;")
+    con.execute("PRAGMA foreign_keys=ON;")
     con.row_factory = sqlite3.Row
     return con
+
 
 def _table_columns(con, table: str) -> set[str]:
     rows = con.execute(f"PRAGMA table_info({table})").fetchall()
     return {r["name"] for r in rows}
+
 
 def init_db():
     con = _conn()
@@ -57,7 +61,7 @@ def init_db():
     );
     """)
 
-    # Migraciones simples (por si ya existía metrics sin columnas nuevas)
+    # Migraciones simples
     cols = _table_columns(con, "metrics")
     if "desc" not in cols:
         con.execute("ALTER TABLE metrics ADD COLUMN desc TEXT DEFAULT ''")
@@ -73,8 +77,16 @@ def init_db():
     con.commit()
     con.close()
 
-def upsert_metric(key: str, name: str | None, unit: str | None, kind: str | None,
-                  topic: str | None, desc: str | None, demo: bool | None):
+
+def upsert_metric(
+    key: str,
+    name: str | None,
+    unit: str | None,
+    kind: str | None,
+    topic: str | None,
+    desc: str | None,
+    demo: bool | None
+):
     con = _conn()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -98,21 +110,58 @@ def upsert_metric(key: str, name: str | None, unit: str | None, kind: str | None
     con.commit()
     con.close()
 
+
 def delete_metric(key: str):
+    # Limpia también lecturas asociadas (más ordenado para el demo)
     con = _conn()
+    con.execute("DELETE FROM readings WHERE metric_key = ?", (key,))
     con.execute("DELETE FROM metrics WHERE key = ?", (key,))
     con.commit()
     con.close()
 
-def ensure_metric(metric_key: str, unit: str | None = None, topic: str | None = None):
+
+# --- MQTT topic match (wildcards + y #)
+def mqtt_match(filter: str, topic: str) -> bool:
+    if not filter:
+        return False
+    f = str(filter).split("/")
+    t = str(topic).split("/")
+
+    for i in range(len(f)):
+        fp = f[i]
+        if fp == "#":
+            return True
+        if i >= len(t):
+            return False
+        if fp == "+":
+            continue
+        if fp != t[i]:
+            return False
+
+    return len(f) == len(t)
+
+
+def metrics_matching_topic(topic: str):
+    """
+    Devuelve métricas (manuales) cuyo 'topic' hace match con el topic entrante.
+    - Ignora demo=1 (porque demo no debe consumir MQTT real)
+    """
     con = _conn()
-    now = datetime.now(timezone.utc).isoformat()
-    con.execute("""
-      INSERT OR IGNORE INTO metrics(key, name, unit, kind, topic, desc, demo, created_at)
-      VALUES(?, ?, ?, 'line', ?, '', 0, ?)
-    """, (metric_key, metric_key.replace("_", " ").title(), unit, topic, now))
-    con.commit()
+    rows = con.execute("""
+      SELECT key, unit, kind, topic, demo
+      FROM metrics
+      WHERE topic IS NOT NULL AND topic != ''
+        AND demo = 0
+      ORDER BY key
+    """).fetchall()
     con.close()
+
+    out = []
+    for r in rows:
+        if mqtt_match(r["topic"], topic):
+            out.append(dict(r))
+    return out
+
 
 def insert_raw(topic: str, payload_text: str):
     con = _conn()
@@ -121,25 +170,48 @@ def insert_raw(topic: str, payload_text: str):
         "INSERT INTO raw_messages(ts_received, topic, payload) VALUES(?,?,?)",
         (now, topic, payload_text),
     )
+
+    # Retención 30 días (robusta con datetime())
+    con.execute("DELETE FROM raw_messages WHERE datetime(ts_received) < datetime('now','-30 days')")
+
     con.commit()
     con.close()
 
-def insert_reading(metric_key: str, ts_iso: str, value: float | None, unit: str | None,
-                   device_id: str | None, topic: str, payload_text: str):
+
+def insert_reading(
+    metric_key: str,
+    ts_iso: str,
+    value: float | None,
+    unit: str | None,
+    device_id: str | None,
+    topic: str,
+    payload_text: str
+) -> bool:
+    """
+    IMPORTANTE:
+    - YA NO auto-crea métricas.
+    - Si la métrica no existe, NO inserta (comportamiento manual-only).
+    """
     con = _conn()
-    ensure_metric(metric_key, unit=unit, topic=topic)
+
+    exists = con.execute("SELECT 1 FROM metrics WHERE key = ? LIMIT 1", (metric_key,)).fetchone()
+    if not exists:
+        con.close()
+        return False
 
     con.execute("""
       INSERT INTO readings(metric_key, ts, value, unit, device_id, topic, payload)
       VALUES(?,?,?,?,?,?,?)
     """, (metric_key, ts_iso, value, unit, device_id, topic, payload_text))
 
-    # Retención 30 días
-    con.execute("DELETE FROM readings WHERE ts < datetime('now','-30 days')")
-    con.execute("DELETE FROM raw_messages WHERE ts_received < datetime('now','-30 days')")
+    # Retención 30 días (robusta con datetime())
+    con.execute("DELETE FROM readings WHERE datetime(ts) < datetime('now','-30 days')")
+    con.execute("DELETE FROM raw_messages WHERE datetime(ts_received) < datetime('now','-30 days')")
 
     con.commit()
     con.close()
+    return True
+
 
 def list_metrics():
     con = _conn()
@@ -150,6 +222,7 @@ def list_metrics():
     """).fetchall()
     con.close()
     return [dict(r) for r in rows]
+
 
 def last_raw(limit: int = 20):
     con = _conn()
@@ -162,6 +235,7 @@ def last_raw(limit: int = 20):
     con.close()
     return [dict(r) for r in rows]
 
+
 def last_readings(limit: int = 20):
     con = _conn()
     rows = con.execute("""
@@ -173,13 +247,14 @@ def last_readings(limit: int = 20):
     con.close()
     return [dict(r) for r in rows]
 
+
 def readings(metric_key: str, days: int = 1, limit: int = 500):
     con = _conn()
     rows = con.execute("""
       SELECT ts, value, unit, device_id, topic, payload
       FROM readings
       WHERE metric_key = ?
-        AND ts >= datetime('now', ?)
+        AND datetime(ts) >= datetime('now', ?)
       ORDER BY ts ASC
       LIMIT ?
     """, (metric_key, f"-{days} days", limit)).fetchall()

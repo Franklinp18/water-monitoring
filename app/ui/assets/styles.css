@@ -334,3 +334,7 @@ input:focus, select:focus{ border-color: rgba(34,211,238,.38); }
 .checkbox input{ width:auto; }
 
 .actions{ display:flex; justify-content:flex-end; gap:10px; margin-top: 6px; }
+
+
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+a.btn.small { padding: 6px 10px; font-size: 12px; }

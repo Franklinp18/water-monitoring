@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HydroMonitor - Historial</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">💧</div>
+      <div class="brand-text">
+        <div class="brand-title">HydroMonitor <span class="accent">Historial</span></div>
+        <div class="brand-sub" id="metric-subtitle">Cargando…</div>
+      </div>
+    </div>
+
+    <div class="topbar-actions" style="display:flex; gap:10px; align-items:center;">
+      <a class="btn ghost" href="/">← Volver</a>
+
+      <!-- Export (se habilitarán en el siguiente paso) -->
+      <button class="btn primary" id="btn-export-pdf" type="button" disabled>Exportar PDF</button>
+      <button class="btn primary" id="btn-export-xlsx" type="button" disabled>Exportar Excel</button>
+    </div>
+  </header>
+
+  <main class="layout" style="display:block;">
+    <section class="content" style="margin-left:0;">
+      <div class="content-head">
+        <div>
+          <h2 id="metric-title">Historial</h2>
+          <p id="metric-desc">Últimos 30 días</p>
+        </div>
+      </div>
+
+      <div class="widget" style="grid-column: span 12;">
+        <div class="widget-top">
+          <div>
+            <div class="widget-title">Serie temporal</div>
+            <div class="widget-sub">Lecturas registradas (últimos 30 días)</div>
+          </div>
+        </div>
+        <div class="chart-box" style="height:320px;">
+          <canvas id="history-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="widget" style="grid-column: span 12;">
+        <div class="widget-top">
+          <div>
+            <div class="widget-title">Bitácora</div>
+            <div class="widget-sub">Vista tipo “blog” (más reciente primero)</div>
+          </div>
+        </div>
+
+        <div id="blog" style="padding:14px;"></div>
+      </div>
+
+      <footer class="footer">
+        COPYRIGHT 2026 © El contenido de esta obra es de propiedad intelectual de la ESPOL. Todos los derechos reservados.
+      </footer>
+    </section>
+  </main>
+
+  <script src="/assets/vendor/chart.umd.min.js"></script>
+  <script src="/assets/history.js"></script>
+</body>
+</html>

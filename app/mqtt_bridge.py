@@ -11,26 +11,24 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "hydromonit/#")
 
 
-def _guess_metric_from_topic(topic: str) -> tuple[str, str | None]:
+def _guess_device_from_topic(topic: str) -> str | None:
     # hydromonit/<device>/<metric>
     parts = topic.split("/")
-    device_id = parts[1] if len(parts) >= 3 else None
-    metric = parts[-1] if parts else "unknown"
-    return metric, device_id
+    if len(parts) >= 3:
+        return parts[1]
+    return None
 
 
 def _parse_payload(payload_text: str, topic: str):
-    metric, device_from_topic = _guess_metric_from_topic(topic)
     ts = datetime.now(timezone.utc).isoformat()
     value = None
     unit = None
-    device_id = device_from_topic
+    device_id = _guess_device_from_topic(topic)
 
     # 1) Intenta JSON
     try:
         obj = json.loads(payload_text)
         if isinstance(obj, dict):
-            metric = str(obj.get("metric", metric))
             device_id = obj.get("device_id", device_id)
             unit = obj.get("unit", unit)
             if "ts" in obj:
@@ -40,24 +38,22 @@ def _parse_payload(payload_text: str, topic: str):
                     value = float(obj["value"])
                 except Exception:
                     value = None
-        # Si es JSON pero no dict, se guarda como raw igual
-        return metric, ts, value, unit, device_id
+        return ts, value, unit, device_id
     except Exception:
         pass
 
-    # 2) Si no es JSON, intenta número plano
+    # 2) número plano
     try:
         value = float(payload_text.strip())
     except Exception:
         value = None
 
-    return metric, ts, value, unit, device_id
+    return ts, value, unit, device_id
 
 
 async def mqtt_loop(hub):
     print(f"[MQTT] Starting loop host={MQTT_HOST} port={MQTT_PORT} topic={MQTT_TOPIC}")
 
-    # backoff simple para reconexión (evita loop agresivo)
     backoff = 1
 
     while True:
@@ -74,34 +70,44 @@ async def mqtt_loop(hub):
                         topic = str(msg.topic)
                         payload_text = msg.payload.decode(errors="replace")
 
-                        print(f"[MQTT] Message topic={topic} payload={payload_text}")
-
-                        # Guarda raw siempre
+                        # 1) RAW siempre (debug)
                         db.insert_raw(topic, payload_text)
 
-                        metric_key, ts, value, unit, device_id = _parse_payload(payload_text, topic)
+                        # 2) Parse mínimo (value/unit/ts/device)
+                        ts, value, unit, device_id = _parse_payload(payload_text, topic)
 
-                        # Guarda lectura
-                        db.insert_reading(
-                            metric_key=metric_key,
-                            ts_iso=ts,
-                            value=value,
-                            unit=unit,
-                            device_id=device_id,
-                            topic=topic,
-                            payload_text=payload_text,
-                        )
+                        # 3) MANUAL-ONLY: solo procesar si existe métrica que matchee este topic
+                        matches = db.metrics_matching_topic(topic)
+                        if not matches:
+                            # No hay métrica configurada por el usuario para este topic -> NO lecturas, NO WS
+                            continue
 
-                        # Emite en vivo
-                        await hub.broadcast({
-                            "type": "reading",
-                            "metric": metric_key,
-                            "ts": ts,
-                            "value": value,
-                            "unit": unit,
-                            "device_id": device_id,
-                            "topic": topic,
-                        })
+                        # 4) Por cada métrica que matchee, guardamos lectura y emitimos
+                        for m in matches:
+                            metric_key = m["key"]
+                            unit_final = unit or m.get("unit") or None
+
+                            ok = db.insert_reading(
+                                metric_key=metric_key,
+                                ts_iso=ts,
+                                value=value,
+                                unit=unit_final,
+                                device_id=device_id,
+                                topic=topic,
+                                payload_text=payload_text,
+                            )
+                            if not ok:
+                                continue
+
+                            await hub.broadcast({
+                                "type": "reading",
+                                "metric": metric_key,   # útil para futuro
+                                "ts": ts,
+                                "value": value,
+                                "unit": unit_final,
+                                "device_id": device_id,
+                                "topic": topic,
+                            })
 
         except MqttError as e:
             print(f"[MQTT] MqttError: {e}. Reconnecting in {backoff}s...")
