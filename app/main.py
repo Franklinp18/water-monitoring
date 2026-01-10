@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import csv
+import io
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 
 from .realtime import RealtimeHub
 from . import db
@@ -132,3 +135,42 @@ def api_delete_metric(key: str):
 @app.get("/metric/{metric_key}")
 def metric_page(metric_key: str):
     return FileResponse("app/ui/metric.html")
+
+
+
+
+@app.get("/api/metrics/{metric_key}/export.csv")
+def api_metric_export_csv(metric_key: str, days: int = 30):
+    # Forzamos 1..30 días (MVP)
+    days = max(1, min(int(days), 30))
+
+    # Un límite alto, pero controlado. Ajusta si quieres.
+    rows = db.readings(metric_key, days=days, limit=200000)
+
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # header
+        writer.writerow(["ts", "value", "unit", "device_id", "topic", "payload"])
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        for r in rows:
+            writer.writerow([
+                r.get("ts", ""),
+                r.get("value", ""),
+                r.get("unit", ""),
+                r.get("device_id", ""),
+                r.get("topic", ""),
+                r.get("payload", ""),
+            ])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    filename = f"hydromonitor_{metric_key}_{days}d.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+    return StreamingResponse(generate(), media_type="text/csv; charset=utf-8", headers=headers)

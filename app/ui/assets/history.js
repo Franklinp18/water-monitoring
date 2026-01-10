@@ -8,7 +8,7 @@
   const $blog = document.getElementById("blog");
 
   const $btnPdf = document.getElementById("btn-export-pdf");
-  const $btnXlsx = document.getElementById("btn-export-xlsx");
+  const $btnCsv = document.getElementById("btn-export-csv");
 
   const DAYS = 30;
   const LIMIT = 5000;
@@ -23,7 +23,6 @@
   }
 
   function getMetricKeyFromPath() {
-    // /metric/<key>
     const parts = location.pathname.split("/").filter(Boolean);
     return decodeURIComponent(parts[1] || "");
   }
@@ -32,7 +31,7 @@
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} ${res.statusText} ${txt}`);
+      throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? ` -> ${txt}` : ""}`);
     }
     return res.json();
   }
@@ -79,8 +78,7 @@
       return;
     }
 
-    // blog: más reciente primero
-    const copy = [...rows].reverse();
+    const copy = [...rows].reverse(); // más reciente primero
 
     $blog.innerHTML = copy.map(r => {
       const ts = escapeHtml(r.ts || "");
@@ -111,13 +109,21 @@
       return;
     }
 
-    // export se hace en el próximo paso
-    $btnPdf.disabled = true;
-    $btnXlsx.disabled = true;
+    // PDF después
+    if ($btnPdf) $btnPdf.disabled = true;
+
+    // CSV ya
+    if ($btnCsv) {
+      $btnCsv.disabled = false;
+      $btnCsv.addEventListener("click", () => {
+        const url = `/api/metrics/${encodeURIComponent(key)}/export.csv?days=${DAYS}`;
+        window.location.href = url;
+      });
+    }
 
     $title.textContent = `Historial: ${key}`;
     $subtitle.textContent = `Cargando últimos ${DAYS} días…`;
-    $desc.textContent = `Últimos ${DAYS} días (máximo ${LIMIT} registros)`;
+    $desc.textContent = `Últimos ${DAYS} días (máx. ${LIMIT} registros)`;
 
     const metrics = await fetchJson("/api/metrics");
     const meta = Array.isArray(metrics) ? metrics.find(m => m.key === key) : null;
