@@ -1,0 +1,3 @@
+https://github.com/HelTec-Aaron-Lee/WiFi_Kit_series/releases/download/0.0.7/package_heltec_esp32_index.json
+
+
