@@ -2,15 +2,8 @@
 (() => {
   "use strict";
 
-  // ----------------------------
-  // Config
-  // ----------------------------
   const SIDEBAR_KEY = "hydromonitor.sidebarCollapsed.v1";
-  const DEMO_TICK_MS = 5000;
 
-  // ----------------------------
-  // DOM
-  // ----------------------------
   const $grid = document.getElementById("grid");
   const $list = document.getElementById("metrics-list");
   const $empty = document.getElementById("empty");
@@ -25,9 +18,6 @@
 
   const $sidebarToggle = document.getElementById("sidebar-toggle");
 
-  // ----------------------------
-  // Runtime state
-  // ----------------------------
   const charts = new Map(); // key -> Chart instance
 
   const state = {
@@ -35,17 +25,13 @@
     wsOnline: false,
     metrics: [],
     byKey: new Map(),
-
-    // runtime data for widgets
-    series: new Map(), // key -> {labels, data}
-    bars: new Map(),   // key -> {labels, data}
-    tables: new Map(), // key -> rows[]
-    kpis: new Map()    // key -> last {value, unit, ts}
+    series: new Map(), // key -> {labels,data}
+    bars: new Map(),   // key -> {labels,data}
+    tables: new Map(), // key -> rows
+    kpis: new Map()    // key -> last
   };
 
-  // ----------------------------
-  // API helpers
-  // ----------------------------
+  // ---------- API ----------
   async function fetchJson(url, opts = {}) {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
@@ -69,9 +55,15 @@
     return null;
   }
 
-  const apiGetMetrics = () => fetchJson("/api/metrics");
-  const apiCreateMetric = (metric) => fetchJson("/api/metrics", { method: "POST", body: JSON.stringify(metric) });
-  const apiDeleteMetric = (key) => fetchJson(`/api/metrics/${encodeURIComponent(key)}`, { method: "DELETE" });
+  async function apiGetMetrics() {
+    return fetchJson("/api/metrics");
+  }
+  async function apiCreateMetric(metric) {
+    return fetchJson("/api/metrics", { method: "POST", body: JSON.stringify(metric) });
+  }
+  async function apiDeleteMetric(key) {
+    return fetchJson(`/api/metrics/${encodeURIComponent(key)}`, { method: "DELETE" });
+  }
 
   async function syncMetricsFromServer() {
     try {
@@ -99,9 +91,7 @@
     }
   }
 
-  // ----------------------------
-  // Utils
-  // ----------------------------
+  // ---------- Utils ----------
   function slugify(s) {
     return (s || "")
       .trim()
@@ -117,6 +107,11 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function cssVar(name, fallback = "") {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
   }
 
   function mqttMatch(filter, topic) {
@@ -135,7 +130,9 @@
   }
 
   function setEmptyState(isEmpty) {
-    $empty.style.display = isEmpty ? "block" : "none";
+    if ($empty) $empty.style.display = isEmpty ? "block" : "none";
+
+    if (!$subtitle) return;
 
     if (!state.apiOnline) {
       $subtitle.textContent = "API no disponible. No se pueden cargar/guardar métricas.";
@@ -148,9 +145,7 @@
       : `Métricas configuradas. Esperando lecturas MQTT… • ${ws}`;
   }
 
-  // ----------------------------
-  // Sidebar collapse
-  // ----------------------------
+  // ---------- Sidebar collapse ----------
   function applySidebarState() {
     const collapsed = localStorage.getItem(SIDEBAR_KEY) === "1";
     document.body.classList.toggle("sidebar-collapsed", collapsed);
@@ -161,22 +156,22 @@
     localStorage.setItem(SIDEBAR_KEY, isCollapsed ? "1" : "0");
   }
 
-  // ----------------------------
-  // Demo data
-  // ----------------------------
-  function nowLabel() {
-    const d = new Date();
+  // ---------- Demo data ----------
+  function fmtHHMM(d) {
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
     return `${hh}:${mm}`;
   }
 
-  function makeSeries(n = 24, base = 10, amp = 2) {
+  function makeSeries(n = 24, base = 10, amp = 2, stepMin = 5) {
     const labels = [];
     const data = [];
     let v = base;
+
+    const now = Date.now();
     for (let i = 0; i < n; i++) {
-      labels.push(nowLabel());
+      const t = new Date(now - (n - 1 - i) * stepMin * 60_000);
+      labels.push(fmtHHMM(t));
       v += (Math.random() - 0.5) * amp;
       data.push(Number(v.toFixed(2)));
     }
@@ -184,27 +179,28 @@
   }
 
   function chartOptions() {
+    const grid = cssVar("--chart-grid", "rgba(148,163,184,0.18)");
+    const tick = cssVar("--chart-tick", "rgba(148,163,184,0.85)");
+
     return {
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },
+      interaction: { mode: "index", intersect: false },
       scales: {
-        x: { grid: { color: "rgba(148,163,184,0.10)" }, ticks: { color: "rgba(148,163,184,0.80)" } },
-        y: { grid: { color: "rgba(148,163,184,0.10)" }, ticks: { color: "rgba(148,163,184,0.80)" } }
+        x: { grid: { color: grid }, ticks: { color: tick } },
+        y: { grid: { color: grid }, ticks: { color: tick } }
       }
     };
   }
 
-  // ----------------------------
-  // CRUD
-  // ----------------------------
+  // ---------- CRUD ----------
   async function addMetric(metric) {
     if (!metric.key) {
       alert("Key inválido. Escribe un identificador (ej: caudal1_m, presion_psi).");
       return false;
     }
 
-    // Nota: esto depende de que state.byKey esté sincronizado
     if (state.byKey.has(metric.key)) {
       alert(`Ese key ya existe: "${metric.key}". Usa otro (ej: caudal2_m).`);
       return false;
@@ -250,9 +246,7 @@
     }
   }
 
-  // ----------------------------
-  // Render
-  // ----------------------------
+  // ---------- Render ----------
   function clearCharts() {
     for (const c of charts.values()) c.destroy();
     charts.clear();
@@ -262,37 +256,37 @@
     const metrics = state.metrics || [];
     setEmptyState(metrics.length === 0);
 
-    // Sidebar list
-    $list.innerHTML = "";
-    for (const m of metrics) {
-      const item = document.createElement("div");
-      item.className = "sidebar-item";
+    if ($list) {
+      $list.innerHTML = "";
+      for (const m of metrics) {
+        const item = document.createElement("div");
+        item.className = "sidebar-item";
 
-      const demoTag = m.demo ? `<div class="pill" title="Demo activado">DEMO</div>` : "";
-      const unitTag = `<div class="pill">${escapeHtml(m.unit || "")}</div>`;
+        const demoTag = m.demo ? `<div class="pill" title="Demo activado">DEMO</div>` : "";
+        const unitTag = `<div class="pill">${escapeHtml(m.unit || "")}</div>`;
 
-      item.innerHTML = `
-        <div class="meta">
-          <div class="name">${escapeHtml(m.name)}</div>
-          <div class="small">${escapeHtml(m.key)} • ${escapeHtml(m.type)} • ${escapeHtml(m.topic)}</div>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          ${demoTag}
-          ${unitTag}
-          <a class="btn small" href="/metric/${encodeURIComponent(m.key)}" title="Ver historial">Historial</a>
-          <button class="trash-btn" title="Eliminar métrica" data-del="${escapeHtml(m.key)}" type="button">🗑</button>
-        </div>
-      `;
-      item.querySelector("[data-del]")?.addEventListener("click", () => removeMetric(m.key));
-      $list.appendChild(item);
+        item.innerHTML = `
+          <div class="meta">
+            <div class="name">${escapeHtml(m.name)}</div>
+            <div class="small">${escapeHtml(m.key)} • ${escapeHtml(m.type)} • ${escapeHtml(m.topic)}</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            ${demoTag}
+            ${unitTag}
+            <button class="trash-btn" title="Eliminar métrica" data-del="${escapeHtml(m.key)}" type="button">🗑</button>
+          </div>
+        `;
+        item.querySelector("[data-del]")?.addEventListener("click", () => removeMetric(m.key));
+        $list.appendChild(item);
+      }
     }
 
-    // Dashboard grid
     clearCharts();
-    $grid.innerHTML = "";
-    for (const m of metrics) $grid.appendChild(buildWidget(m));
+    if ($grid) {
+      $grid.innerHTML = "";
+      for (const m of metrics) $grid.appendChild(buildWidget(m));
+    }
 
-    // Mount widgets
     for (const m of metrics) {
       if (m.type === "line") mountLineChart(m);
       if (m.type === "bar") mountBarChart(m);
@@ -319,8 +313,7 @@
           <div class="widget-title">${escapeHtml(metric.name)}</div>
           ${sub}
         </div>
-        <div class="widget-actions" style="display:flex; gap:8px; align-items:center;">
-          <a class="btn small" href="/metric/${encodeURIComponent(metric.key)}" title="Ver historial">Ver historial</a>
+        <div class="widget-actions">
           <button class="trash-btn" title="Eliminar" data-del="${escapeHtml(metric.key)}" type="button">🗑</button>
         </div>
       </div>
@@ -332,11 +325,19 @@
   }
 
   function widgetBody(metric) {
+    // ✅ KPI: link "Historial" usando el href original que ya te funciona: /metric/<key>
     if (metric.type === "kpi") {
+      const href = `/metric/${encodeURIComponent(metric.key)}`;
       return `
-        <div class="kpi">
-          <div class="val" id="kpi-${metric.key}">--</div>
-          <div class="unit">${escapeHtml(metric.unit || "")}</div>
+        <div class="kpi kpi-wrap">
+          <div class="kpi-main">
+            <div class="val" id="kpi-${metric.key}">--</div>
+            <div class="unit">${escapeHtml(metric.unit || "")}</div>
+          </div>
+
+          <a class="kpi-history" href="${href}" title="Ver historial">
+            Historial
+          </a>
         </div>
       `;
     }
@@ -363,6 +364,7 @@
     return "";
   }
 
+  // ✅ Línea -> puntos (sin línea)
   function mountLineChart(metric) {
     const canvas = document.getElementById(`cv-${metric.key}`);
     if (!canvas) return;
@@ -371,7 +373,7 @@
     let data = [];
 
     if (metric.demo) {
-      const s = makeSeries(24, 10, 2);
+      const s = makeSeries(24, 10, 2, 5);
       labels = s.labels;
       data = s.data;
     } else {
@@ -380,11 +382,21 @@
       data = s.data;
     }
 
+    const accent = cssVar("--accent", "#22d3ee");
+
     const chart = new Chart(canvas, {
       type: "line",
       data: {
         labels,
-        datasets: [{ data, borderWidth: 2, pointRadius: 0, tension: 0.25 }]
+        datasets: [{
+          data,
+          showLine: false,
+          borderWidth: 0,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: accent,
+          pointBorderColor: accent
+        }]
       },
       options: chartOptions()
     });
@@ -406,9 +418,20 @@
       if (b && Array.isArray(b.data)) data = b.data;
     }
 
+    const accent = cssVar("--accent", "#22d3ee");
+    const accentSoft = cssVar("--accent-soft", "rgba(34,211,238,0.20)");
+
     const chart = new Chart(canvas, {
       type: "bar",
-      data: { labels, datasets: [{ data, borderWidth: 1 }] },
+      data: {
+        labels,
+        datasets: [{
+          data,
+          borderWidth: 1,
+          borderColor: accent,
+          backgroundColor: accentSoft
+        }]
+      },
       options: chartOptions()
     });
 
@@ -436,9 +459,7 @@
     }
   }
 
-  // ----------------------------
-  // WS apply
-  // ----------------------------
+  // ---------- WS apply ----------
   function applyReading(msg) {
     const topic = msg.topic || "";
     const valueNum = typeof msg.value === "number" ? msg.value : Number(msg.value);
@@ -529,9 +550,7 @@
     };
   }
 
-  // ----------------------------
-  // Demo tick
-  // ----------------------------
+  // ---------- Demo tick ----------
   function tickDemo() {
     for (const m of state.metrics) {
       if (!m.demo) continue;
@@ -558,9 +577,25 @@
       if (!chart) continue;
 
       if (m.type === "line") {
-        const s = makeSeries(24, 10, 2);
-        chart.data.labels = s.labels;
-        chart.data.datasets[0].data = s.data;
+        const MAX = 24;
+
+        if (!chart.data.labels?.length) {
+          const s = makeSeries(MAX, 10, 2, 5);
+          chart.data.labels = s.labels;
+          chart.data.datasets[0].data = s.data;
+        } else {
+          const last = chart.data.datasets[0].data.at(-1);
+          const next = (Number.isFinite(last) ? last : 10) + (Math.random() - 0.5) * 2;
+
+          chart.data.labels.push(fmtHHMM(new Date()));
+          chart.data.datasets[0].data.push(Number(next.toFixed(2)));
+
+          if (chart.data.labels.length > MAX) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+          }
+        }
+
         chart.update();
       }
 
@@ -571,21 +606,13 @@
     }
   }
 
-  // ----------------------------
-  // Modal / Events
-  // ----------------------------
+  // ---------- Modal / Events ----------
   function openModal() {
-    $modal.classList.remove("hidden");
+    $modal?.classList.remove("hidden");
   }
-
   function closeModal() {
-    $modal.classList.add("hidden");
-    $form.reset();
-  }
-
-  function setSubmitBusy(isBusy) {
-    const btn = $form?.querySelector('button[type="submit"]');
-    if (btn) btn.disabled = !!isBusy;
+    $modal?.classList.add("hidden");
+    $form?.reset?.();
   }
 
   $btnAdd?.addEventListener("click", openModal);
@@ -598,31 +625,25 @@
 
   $form?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    setSubmitBusy(true);
+
+    const submitBtn = $form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
 
     try {
-      const name = $form.elements.name?.value?.trim() || "";
-      const keyRaw = $form.elements.key?.value?.trim() || "";
+      const name = $form.elements.name.value.trim();
+      const keyRaw = $form.elements.key.value.trim();
       const key = slugify(keyRaw || name);
 
-      const type = $form.elements.type?.value || "line";
-      const unit = ($form.elements.unit?.value || "").trim();
-
-      // IMPORTANTE: en tu HTML debe existir <input name="topic" ...>
+      const type = $form.elements.type.value;
+      const unit = $form.elements.unit.value.trim();
       const topicEl = $form.elements.topic;
+      const descEl = $form.elements.desc;
+      const demoEl = $form.elements.demo;
+
       const topic = (topicEl ? topicEl.value : "").trim();
+      const desc = (descEl ? descEl.value : "").trim();
+      const demo = !!(demoEl && demoEl.checked);
 
-      const desc = ($form.elements.desc?.value || "").trim();
-      const demo = !!($form.elements.demo && $form.elements.demo.checked);
-
-      if (!name) {
-        alert("Nombre es obligatorio.");
-        return;
-      }
-      if (!key) {
-        alert("Key inválido.");
-        return;
-      }
       if (!topic) {
         alert("Topic MQTT es obligatorio. Ej: hydromonit/+/humedad_suelo");
         return;
@@ -631,15 +652,13 @@
       const ok = await addMetric({ name, key, type, unit, topic, desc, demo });
       if (ok) closeModal();
     } finally {
-      setSubmitBusy(false);
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
   $sidebarToggle?.addEventListener("click", toggleSidebar);
 
-  // ----------------------------
-  // Boot
-  // ----------------------------
+  // ---------- Boot ----------
   async function boot() {
     applySidebarState();
     await syncMetricsFromServer();
@@ -647,18 +666,61 @@
     connectWS();
 
     tickDemo();
-    setInterval(tickDemo, DEMO_TICK_MS);
+    setInterval(tickDemo, 5000);
   }
 
-  // Table minimal style
+  // ---------- Styles (tabla + historial KPI) ----------
   const style = document.createElement("style");
   style.textContent = `
     table.tbl{ width:100%; border-collapse: collapse; font-size: 13px; }
-    .tbl th,.tbl td{ padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.06); color: rgba(226,232,240,.86); }
-    .tbl th{ text-align:left; font-size:12px; color: rgba(148,163,184,.70); background: rgba(2,6,23,.22); }
-    .btn.small{ padding:6px 10px; font-size:12px; }
+    .tbl th,.tbl td{
+      padding:10px 12px;
+      border-bottom:1px solid var(--tbl-border, rgba(255,255,255,.06));
+      color: var(--tbl-text, rgba(226,232,240,.86));
+    }
+    .tbl th{
+      text-align:left;
+      font-size:12px;
+      color: var(--tbl-head, rgba(148,163,184,.70));
+      background: var(--tbl-headbg, rgba(2,6,23,.22));
+    }
+
+    .kpi-wrap{ position:relative; padding-bottom:18px; }
+    .kpi-history{
+      position:absolute; right:10px; bottom:8px;
+      font-size:11px; line-height:1;
+      opacity:.65; text-decoration:none;
+      color: var(--accent, #22d3ee);
+      padding:4px 6px;
+      border-radius:8px;
+      background: rgba(255,255,255,.04);
+    }
+    .kpi-history:hover{ opacity:1; text-decoration:underline; }
   `;
   document.head.appendChild(style);
+
+  // Re-render de charts cuando cambia el tema (sin recargar)
+  window.addEventListener("hydromonitor:themechange", () => {
+    for (const chart of charts.values()) {
+      try {
+        const accent = cssVar("--accent", "#22d3ee");
+        const soft = cssVar("--accent-soft", "rgba(34,211,238,0.20)");
+
+        if (chart.config.type === "line") {
+          chart.data.datasets[0].pointBackgroundColor = accent;
+          chart.data.datasets[0].pointBorderColor = accent;
+        } else if (chart.config.type === "bar") {
+          chart.data.datasets[0].borderColor = accent;
+          chart.data.datasets[0].backgroundColor = soft;
+        }
+
+        chart.options = chartOptions();
+        chart.update();
+      } catch {
+        // ignore
+      }
+    }
+  });
 
   boot();
 })();

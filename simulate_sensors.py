@@ -10,14 +10,14 @@ BROKER_PORT = 1883
 
 SENSORS = [
     # Caudal 1 (m)  (si realmente es nivel en metros)
-    {"device_id": "sim-01", "topic": "hydromonit/sim-01/caudal1_m", "unit": "m", "base": 1.20, "noise": 0.05},
+    {"device_id": "sim-01", "topic": "hydromonit/sim-01/caudal1_m", "unit": "m", "base": 200.0, "noise": 0.05},
     # Caudal 2 (m)
-    {"device_id": "sim-02", "topic": "hydromonit/sim-02/caudal2_m", "unit": "m", "base": 0.95, "noise": 0.06},
+    {"device_id": "sim-02", "topic": "hydromonit/sim-02/caudal2_m", "unit": "m", "base": 195.0, "noise": 0.06},
     # Presión (PSI)
     {"device_id": "sim-03", "topic": "hydromonit/sim-03/presion_psi", "unit": "PSI", "base": 32.0, "noise": 1.5},
 ]
 
-PUBLISH_EVERY_SEC = 2
+PUBLISH_EVERY_SEC = 30
 
 
 def connect_client():

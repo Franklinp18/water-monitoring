@@ -5,6 +5,52 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>HydroMonitor - Plataforma</title>
   <link rel="stylesheet" href="/assets/styles.css" />
+
+  <!-- Estilos mínimos para el botón centrado del historial -->
+  <style>
+    .topbar{ position: sticky; } /* asegura stacking correcto */
+    .topbar-center{
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none; /* para no bloquear clicks laterales */
+    }
+    .topbar-center > *{ pointer-events: auto; }
+    .center-pill{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(2,6,23,.18);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 900;
+      font-size: 13px;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .center-pill:hover{
+      transform: translateY(-1px);
+      background: rgba(2,6,23,.24);
+      border-color: var(--border2);
+    }
+    :root[data-theme="light"] .center-pill{
+      background: rgba(255,255,255,.72);
+    }
+    :root[data-theme="light"] .center-pill:hover{
+      background: rgba(255,255,255,.88);
+    }
+    @media (max-width: 860px){
+      .center-pill span{ display:none; } /* en móvil solo icono */
+      .center-pill{ padding: 8px 10px; }
+    }
+  </style>
 </head>
 
 <body>
@@ -12,15 +58,19 @@
     <div class="brand">
       <div class="logo">💧</div>
       <div class="brand-text">
-        <div class="brand-title">HydroMonitor <span class="accent">Local</span></div>
-        <div class="brand-sub">Plataforma de métricas • JAAPRV</div>
+        <div class="brand-title">
+          Junta Administrativa de Agua Potable Regional de Valdivia
+          <span class="accent">Local</span>
+        </div>
+        <div class="brand-sub">Plataforma de métricas</div>
       </div>
     </div>
+
 
     <div class="topbar-actions">
       <button class="btn primary" id="btn-add" type="button">+ Agregar métrica</button>
 
-      <!-- NUEVO: Toggle claro/oscuro -->
+      <!-- Toggle claro/oscuro -->
       <button class="icon-btn" id="theme-toggle" type="button"
               aria-label="Cambiar tema" title="Cambiar tema">☀️</button>
     </div>
@@ -44,8 +94,7 @@
       <div class="sidebar-list" id="metrics-list"></div>
 
       <div class="sidebar-footer">
-        <div class="hint">
-        </div>
+        <div class="hint"></div>
       </div>
     </aside>
 
@@ -149,9 +198,10 @@
   <!-- Chart.js local -->
   <script src="/assets/vendor/chart.umd.min.js"></script>
 
-  <!-- NUEVO: Theme toggle -->
+  <!-- Theme -->
   <script src="/assets/theme.js"></script>
 
+  <!-- App -->
   <script src="/assets/app.js"></script>
 </body>
 </html>
